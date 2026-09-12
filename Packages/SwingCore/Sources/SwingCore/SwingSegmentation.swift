@@ -210,34 +210,41 @@ public struct SwingSegmenter: Sendable {
 
     /// The last moment the hands were still sitting in the settled zone.
     ///
-    /// A trailing window only reports motion once the hands have travelled far
-    /// enough to widen it, and how long that takes scales with 1/speed — around
-    /// 70 ms for a brisk backswing, 120 ms for a slow one. That lag lands
-    /// straight in the tempo ratio, which is the one number the golfer reads:
-    /// uncorrected it reports 2.4 where the truth is 2.7.
+    /// A trailing window keeps reporting settled for a while after motion starts,
+    /// because a window straddling the boundary is mostly still and its spread
+    /// stays under the threshold. How long depends on speed — around 70 ms for a
+    /// brisk backswing, 120 ms for a slow one. That lag lands straight in the
+    /// backswing duration and so in the tempo ratio, the one number the golfer
+    /// reads: uncorrected it reports 2.4 where the truth is 2.7.
     ///
-    /// So rather than trust the moment the window noticed, take the centroid of
-    /// the settled run and walk forward to the last sample still inside it. That
-    /// asks when the hands actually left the address position, which is what the
-    /// takeaway means, and cuts the lag roughly in half.
+    /// So take the address position from the settled part of the run, then scan
+    /// forward from the run's start for the first sample that leaves a zone
+    /// around it. That asks when the hands actually left address, which is what
+    /// the takeaway means, rather than when the measurement noticed.
     private func refinedTakeaway(
         in path: [HandSample],
         runStart: Int,
         runEnd: Int,
         scale: Double
     ) -> Int {
-        let settled = path[runStart...runEnd].map(\.position)
-        guard !settled.isEmpty else { return runEnd }
+        // Anchor on the part of the run the window could not have contaminated:
+        // everything up to one window before its end is settled outright.
+        let anchorCutoff = path[runEnd].time - configuration.stillWindow
+        var anchor = path[runStart...runEnd].filter { $0.time <= anchorCutoff }.map(\.position)
+        if anchor.count < 3 {
+            anchor = path[runStart...runEnd].map(\.position)
+        }
+        guard !anchor.isEmpty else { return runEnd }
 
-        let centroid = Point(
-            x: settled.reduce(0) { $0 + $1.x } / Double(settled.count),
-            y: settled.reduce(0) { $0 + $1.y } / Double(settled.count)
+        let address = Point(
+            x: anchor.reduce(0) { $0 + $1.x } / Double(anchor.count),
+            y: anchor.reduce(0) { $0 + $1.y } / Double(anchor.count)
         )
         let zone = configuration.stillRadius * scale
 
-        var index = runEnd
+        var index = runStart
         while index + 1 < path.count,
-              path[index + 1].position.distance(to: centroid) <= zone {
+              path[index + 1].position.distance(to: address) <= zone {
             index += 1
         }
         return index
