@@ -11,8 +11,8 @@ Full plan: [`docs/golf-swing-app-plan.md`](docs/golf-swing-app-plan.md).
 
 ## Status
 
-Early scaffold. **None of this has been compiled yet** — see
-[Verification](#verification) before you trust any of it.
+Early scaffold. The core builds and its tests pass in CI; the app target has
+never been compiled. See [Verification](#verification).
 
 ## How it's laid out
 
@@ -63,13 +63,13 @@ Honest accounting of what is and isn't proven:
 
 | | |
 |---|---|
-| `SwingCore` logic | Written with tests. **Tests have not been run** — no Swift toolchain was available where this was authored. CI runs them on every push |
-| App target | **Never compiled.** No Xcode available |
+| `SwingCore` logic | **Compiles and passes** on Swift 6.0 — CI runs the suite in a Linux container on every push |
+| App target | **Never compiled.** Needs Xcode 27.1, which needs a Mac |
 | iPhone Duo APIs | **Unverified against the SDK.** `sceneAccessory`, `CameraCaptureAccessory` and `onAvailabilityChange` are transcribed from Apple's tech talks, not from headers. Reconcile before building |
-| Behaviour on a real swing | Not tested. No device exists in the wild yet |
+| Behaviour on a real swing | Not tested, and cannot be until there is footage. The synthetic fixtures model a swing; they do not prove we handle a real one |
 
-First job for anyone with a Mac: run `swift test`, then `xcodegen generate` and
-fix whatever the compiler says. Expect the Duo display APIs in
+First job for anyone with a Mac: `xcodegen generate` and fix whatever the
+compiler says. Expect the Duo display APIs in
 `Sources/SwingMirror/Stage/StageView.swift` to need correcting first.
 
 ## The gating question
@@ -86,6 +86,24 @@ answered before anything else is built on top of it.
 
 Fallback if video is restricted: decode frames and draw into an
 `AVSampleBufferDisplayLayer` or a Metal view.
+
+## Why the core measures stillness, not speed
+
+The first version of the segmenter thresholded frame-to-frame hand speed. That
+was wrong, and the arithmetic says why: differentiating a pose track multiplies
+position jitter by the inference rate. At 60 Hz, four pixels of Vision jitter on
+a 1080p frame becomes ~0.9 torso-lengths/sec of phantom speed — more than twice
+any threshold that could separate a still golfer from a moving one.
+
+Measured on the synthetic fixture, the speed-based version put the top of the
+backswing at 0.98 s (truth: 1.75 s) with just **two** pixels of jitter, and
+failed outright at eight. It mistook a noise dip during the address for the top.
+
+So stillness is measured as the spread of the hands from their centroid over a
+window. A still golfer reads ~0.03 torso lengths, a golfer mid-backswing ~0.15,
+and the top of the backswing is found as the hands' furthest point from address
+— a reversal, not a stillness, so a golfer with no pause at the top still has
+one. `testSurvivesRealisticPoseJitter` guards this.
 
 ## What this app will not measure
 

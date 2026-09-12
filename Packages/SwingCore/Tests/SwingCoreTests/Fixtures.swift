@@ -22,6 +22,13 @@ struct SeededGenerator {
     mutating func noise(amplitude: Double) -> Float {
         Float((next() * 2 - 1) * amplitude)
     }
+
+    /// Box-Muller, for pose jitter that looks like the real thing.
+    mutating func gaussian(sigma: Double) -> Double {
+        let u1 = Swift.max(next(), 1e-12)
+        let u2 = next()
+        return sigma * (-2 * Foundation.log(u1)).squareRoot() * Foundation.cos(2 * .pi * u2)
+    }
 }
 
 enum AudioFixture {
@@ -72,12 +79,21 @@ enum SwingFixture {
 
     /// A swing at 60 Hz — the rate we decimate pose inference to, not the 240 fps
     /// the video is captured at.
+    /// Vision jitter, expressed in pixels on a 1080p frame, as the caller will
+    /// think about it. Four pixels is a realistic figure outdoors.
+    static func jitter(pixels: Double, frameWidth: Double = 1920) -> Double {
+        pixels / frameWidth
+    }
+
     static func track(
         script: Script = Script(),
         sampleRate: Double = 60,
         headDriftAtImpact: Double = 0,
-        confidence: Double = 0.9
+        confidence: Double = 0.9,
+        jitter: Double = 0,
+        seed: UInt64 = 7
     ) -> PoseTrack {
+        var generator = SeededGenerator(seed: seed)
         var track = PoseTrack()
         let step = 1.0 / sampleRate
         var time = script.addressStart
@@ -90,7 +106,13 @@ enum SwingFixture {
 
             var readings: [Joint: JointReading] = [:]
             func put(_ joint: Joint, _ point: Point) {
-                readings[joint] = JointReading(position: point, confidence: confidence)
+                let jittered = jitter > 0
+                    ? Point(
+                        x: point.x + generator.gaussian(sigma: jitter),
+                        y: point.y + generator.gaussian(sigma: jitter)
+                    )
+                    : point
+                readings[joint] = JointReading(position: jittered, confidence: confidence)
             }
             put(.nose, nose)
             put(.leftShoulder, Point(x: 0.44, y: shoulderY))

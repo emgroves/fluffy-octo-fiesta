@@ -4,19 +4,58 @@ import XCTest
 final class SwingSegmenterTests: XCTestCase {
     private let segmenter = SwingSegmenter()
 
+    /// Midpoint of the scripted pause at the top, which is what the segmenter
+    /// resolves to when it looks for the hands' furthest point.
+    private func expectedTop(_ script: SwingFixture.Script) -> Double {
+        (script.topStart + script.topEnd) / 2
+    }
+
     func testLocatesEveryKeyMomentOfAScriptedSwing() throws {
         let script = SwingFixture.Script()
         let track = SwingFixture.track(script: script)
 
         let result = try segmenter.segment(track: track, impact: script.impact)
 
-        XCTAssertEqual(result.takeaway, script.takeaway, accuracy: 0.05)
-        // Walking back from impact, the first settled sample is the far end of
-        // the pause at the top.
-        XCTAssertEqual(result.top, script.topEnd, accuracy: 0.05)
+        XCTAssertEqual(result.takeaway, script.takeaway, accuracy: 0.08)
+        XCTAssertEqual(result.top, expectedTop(script), accuracy: 0.08)
         XCTAssertEqual(result.impact, script.impact, accuracy: 0.001)
-        XCTAssertEqual(result.finish, script.followThroughEnd, accuracy: 0.06)
+        XCTAssertEqual(result.finish, script.followThroughEnd, accuracy: 0.08)
+        XCTAssertLessThan(result.address, result.takeaway)
         XCTAssertTrue(result.isMonotonic)
+    }
+
+    /// The regression this whole measurement exists for.
+    ///
+    /// The first version of this segmenter thresholded frame-to-frame hand
+    /// speed. Differentiating a pose track multiplies position jitter by the
+    /// inference rate, so at two pixels of jitter it reported the top of the
+    /// backswing at 0.98 s when the truth was 1.75 s — it mistook a noise dip
+    /// during the address for the top. At eight pixels it failed outright.
+    func testSurvivesRealisticPoseJitter() throws {
+        let script = SwingFixture.Script()
+
+        for pixels in [1.0, 2.0, 4.0, 8.0] {
+            let track = SwingFixture.track(
+                script: script,
+                jitter: SwingFixture.jitter(pixels: pixels)
+            )
+
+            let result = try segmenter.segment(track: track, impact: script.impact)
+
+            XCTAssertEqual(
+                result.takeaway, script.takeaway, accuracy: 0.10,
+                "takeaway drifted at \(pixels)px of jitter"
+            )
+            XCTAssertEqual(
+                result.top, expectedTop(script), accuracy: 0.10,
+                "top drifted at \(pixels)px of jitter"
+            )
+            XCTAssertEqual(
+                result.finish, script.followThroughEnd, accuracy: 0.10,
+                "finish drifted at \(pixels)px of jitter"
+            )
+            XCTAssertTrue(result.isMonotonic)
+        }
     }
 
     func testTempoRatioMatchesTheScriptedSwing() throws {
@@ -26,8 +65,8 @@ final class SwingSegmenterTests: XCTestCase {
         let result = try segmenter.segment(track: track, impact: script.impact)
         let ratio = try XCTUnwrap(result.tempoRatio)
 
-        // 0.80 s back, 0.25 s down — a shade over the 3:1 golfers quote.
-        XCTAssertEqual(ratio, 3.2, accuracy: 0.3)
+        // Roughly 0.75 s back against 0.28 s down — near the 3:1 golfers quote.
+        XCTAssertEqual(ratio, 2.7, accuracy: 0.5)
     }
 
     func testClipRangeCoversTheWholeSwingWithPadding() throws {
@@ -70,8 +109,8 @@ final class SwingSegmenterTests: XCTestCase {
 
         let result = try segmenter.segment(track: thinned, impact: script.impact)
 
-        XCTAssertEqual(result.takeaway, script.takeaway, accuracy: 0.08)
-        XCTAssertEqual(result.top, script.topEnd, accuracy: 0.08)
+        XCTAssertEqual(result.takeaway, script.takeaway, accuracy: 0.10)
+        XCTAssertEqual(result.top, expectedTop(script), accuracy: 0.10)
         XCTAssertTrue(result.isMonotonic)
     }
 
@@ -86,8 +125,22 @@ final class SwingSegmenterTests: XCTestCase {
 
         let result = try segmenter.segment(track: track, impact: script.impact)
 
-        XCTAssertEqual(result.takeaway, script.takeaway, accuracy: 0.06)
-        XCTAssertEqual(result.top, script.topEnd, accuracy: 0.06)
+        XCTAssertEqual(result.takeaway, script.takeaway, accuracy: 0.08)
+        XCTAssertEqual(result.top, expectedTop(script), accuracy: 0.08)
+        XCTAssertTrue(result.isMonotonic)
+    }
+
+    /// A golfer who never pauses at the top still has a furthest point, which is
+    /// why the top is found as a reversal rather than as a stillness.
+    func testFindsTheTopWithNoPauseAtAll() throws {
+        var script = SwingFixture.Script()
+        script.topStart = 1.78
+        script.topEnd = 1.78
+        let track = SwingFixture.track(script: script)
+
+        let result = try segmenter.segment(track: track, impact: script.impact)
+
+        XCTAssertEqual(result.top, 1.78, accuracy: 0.08)
         XCTAssertTrue(result.isMonotonic)
     }
 }

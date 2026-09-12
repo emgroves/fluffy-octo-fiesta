@@ -116,8 +116,9 @@ final class SwingSessionModel {
             apply(machine.handle(.personAppeared))
         }
 
-        guard let latest = track.handSpeedSeries().last else { return }
-        switch addressWatcher.update(speed: latest.speed, at: latest.time) {
+        guard let hand = sample.handPosition(),
+              let torso = track.referenceTorsoLength() else { return }
+        switch addressWatcher.update(hand: hand, torsoLength: torso, at: sample.time) {
         case .held: apply(machine.handle(.addressHeld))
         case .broken: apply(machine.handle(.addressBroken))
         case nil: break

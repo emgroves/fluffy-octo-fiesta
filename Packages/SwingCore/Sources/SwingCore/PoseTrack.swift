@@ -56,45 +56,53 @@ public struct PoseTrack: Sendable, Equatable {
         return lengths[lengths.count / 2]
     }
 
-    /// Hand speed over time, in torso-lengths per second.
+    /// The path the hands travelled.
     ///
-    /// This one series drives the whole segmenter: the address and the finish are
-    /// where it sits near zero, the top of the backswing is where it dips back to
-    /// zero between two bursts of motion.
-    public func handSpeedSeries(minimumConfidence: Double = 0.3) -> [SpeedSample] {
-        guard let scale = referenceTorsoLength(minimumConfidence: minimumConfidence) else {
-            return []
-        }
-
-        var series: [SpeedSample] = []
-        series.reserveCapacity(samples.count)
-
-        var previous: (time: Timestamp, point: Point)?
-        for sample in samples {
+    /// We track the hands rather than the club because a clubhead at 100 mph is
+    /// a motion-blurred streak no off-the-shelf detector will follow. The hands
+    /// are slower, always visible, and their path carries the phase information
+    /// the segmenter needs.
+    public func handPathSeries(minimumConfidence: Double = 0.3) -> [HandSample] {
+        samples.compactMap { sample in
             guard let hand = sample.handPosition(minimumConfidence: minimumConfidence) else {
-                // A dropped frame breaks the chain rather than producing a bogus
-                // spike across the gap.
-                previous = nil
-                continue
+                return nil
             }
-            defer { previous = (sample.time, hand) }
-            guard let last = previous else { continue }
-            let dt = sample.time - last.time
-            guard dt > 0 else { continue }
-            let speed = last.point.distance(to: hand) / (dt * scale)
-            series.append(SpeedSample(time: sample.time, speed: speed))
+            return HandSample(time: sample.time, position: hand)
         }
-        return series
     }
-}
 
-public struct SpeedSample: Sendable, Equatable {
-    public var time: Timestamp
-    /// Torso-lengths per second.
-    public var speed: Double
+    /// How still the hands were around each moment, in torso lengths.
+    ///
+    /// A window holding fewer than three samples reports `.infinity` — unknown
+    /// reads as moving, so a gap in the pose track can never be mistaken for a
+    /// golfer standing still.
+    public func stillnessSeries(
+        window: Double = 0.15,
+        alignment: StillnessAlignment = .trailing,
+        minimumConfidence: Double = 0.3
+    ) -> [StillnessSample] {
+        let path = handPathSeries(minimumConfidence: minimumConfidence)
+        guard let scale = referenceTorsoLength(minimumConfidence: minimumConfidence),
+              scale > 0, !path.isEmpty else { return [] }
 
-    public init(time: Timestamp, speed: Double) {
-        self.time = time
-        self.speed = speed
+        return path.map { sample in
+            let span: ClosedRange<Timestamp>
+            switch alignment {
+            case .trailing: span = (sample.time - window)...sample.time
+            case .leading: span = sample.time...(sample.time + window)
+            }
+
+            let inWindow = path.filter { span.contains($0.time) }.map(\.position)
+            guard inWindow.count >= 3 else {
+                return StillnessSample(time: sample.time, spread: .infinity)
+            }
+
+            let centroid = Point(
+                x: inWindow.reduce(0) { $0 + $1.x } / Double(inWindow.count),
+                y: inWindow.reduce(0) { $0 + $1.y } / Double(inWindow.count)
+            )
+            let spread = inWindow.map { $0.distance(to: centroid) }.max() ?? 0
+            return StillnessSample(time: sample.time, spread: spread / scale)
+        }
     }
 }

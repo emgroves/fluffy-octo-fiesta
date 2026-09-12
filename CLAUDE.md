@@ -37,6 +37,12 @@ you need is probably a plain `Double` and a timestamp.
   no metric has to think about it.
 - Distances are expressed in **torso lengths**, never pixels, so a metric means
   the same thing at six feet and at twelve.
+- **Never threshold a derivative of the pose track.** Differentiating multiplies
+  position jitter by the inference rate; four pixels of Vision jitter becomes
+  ~0.9 torso-lengths/sec of phantom speed. Stillness is measured as spread from
+  a windowed centroid (`PoseTrack.stillnessSeries`, `AddressWatcher`), and the
+  top of the backswing as the hands' furthest point from address. See README,
+  "Why the core measures stillness, not speed".
 
 ## Testing
 
@@ -56,8 +62,9 @@ That replaces the synthetic fixtures once there is footage to label.
 
 ## Unverified surface
 
-These have never been compiled against the real SDK — they are transcribed from
-Apple's iPhone Duo tech talks:
+`SwingCore` compiles and its tests pass in CI. The app target does not build
+anywhere yet, and these have never been compiled against the real SDK — they are
+transcribed from Apple's iPhone Duo tech talks:
 
 - `.sceneAccessory { }`, `CameraCaptureAccessory(isEnabled:)`,
   `.onAvailabilityChange { }` in `Stage/StageView.swift`

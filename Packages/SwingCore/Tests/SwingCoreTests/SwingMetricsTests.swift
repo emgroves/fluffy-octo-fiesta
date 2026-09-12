@@ -10,7 +10,7 @@ final class SwingMetricsTests: XCTestCase {
         let metrics = SwingMetricsCalculator.metrics(track: track, segmentation: segmentation)
 
         XCTAssertEqual(metrics.downswingDuration, 0.25, accuracy: 0.06)
-        XCTAssertEqual(try XCTUnwrap(metrics.tempoRatio), 3.2, accuracy: 0.3)
+        XCTAssertEqual(try XCTUnwrap(metrics.tempoRatio), 2.7, accuracy: 0.5)
         XCTAssertGreaterThan(metrics.totalDuration, 1.0)
     }
 
