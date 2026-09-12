@@ -109,6 +109,12 @@ public struct SwingSegmenter: Sendable {
             throw SegmentationFailure.insufficientSamples
         }
 
+        guard let scale = track.referenceTorsoLength(
+            minimumConfidence: configuration.minimumConfidence
+        ), scale > 0 else {
+            throw SegmentationFailure.insufficientSamples
+        }
+
         let impactIndex = nearestIndex(in: path, to: impact)
         let radius = configuration.stillRadius
 
@@ -145,7 +151,9 @@ public struct SwingSegmenter: Sendable {
             let held = path[index].time - path[runStart].time + configuration.stillWindow
             if held >= configuration.minStillDuration || runStart == 0 {
                 located = (
-                    takeaway: index,
+                    takeaway: refinedTakeaway(
+                        in: path, runStart: runStart, runEnd: index, scale: scale
+                    ),
                     address: max(path[0].time, path[runStart].time - configuration.stillWindow)
                 )
                 break
@@ -198,6 +206,41 @@ public struct SwingSegmenter: Sendable {
         )
         guard result.isMonotonic else { throw SegmentationFailure.nonMonotonicResult }
         return result
+    }
+
+    /// The last moment the hands were still sitting in the settled zone.
+    ///
+    /// A trailing window only reports motion once the hands have travelled far
+    /// enough to widen it, and how long that takes scales with 1/speed — around
+    /// 70 ms for a brisk backswing, 120 ms for a slow one. That lag lands
+    /// straight in the tempo ratio, which is the one number the golfer reads:
+    /// uncorrected it reports 2.4 where the truth is 2.7.
+    ///
+    /// So rather than trust the moment the window noticed, take the centroid of
+    /// the settled run and walk forward to the last sample still inside it. That
+    /// asks when the hands actually left the address position, which is what the
+    /// takeaway means, and cuts the lag roughly in half.
+    private func refinedTakeaway(
+        in path: [HandSample],
+        runStart: Int,
+        runEnd: Int,
+        scale: Double
+    ) -> Int {
+        let settled = path[runStart...runEnd].map(\.position)
+        guard !settled.isEmpty else { return runEnd }
+
+        let centroid = Point(
+            x: settled.reduce(0) { $0 + $1.x } / Double(settled.count),
+            y: settled.reduce(0) { $0 + $1.y } / Double(settled.count)
+        )
+        let zone = configuration.stillRadius * scale
+
+        var index = runEnd
+        while index + 1 < path.count,
+              path[index + 1].position.distance(to: centroid) <= zone {
+            index += 1
+        }
+        return index
     }
 
     /// The first moment after impact from which the hands stay settled.
