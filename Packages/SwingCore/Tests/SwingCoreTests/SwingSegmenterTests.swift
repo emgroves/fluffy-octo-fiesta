@@ -114,6 +114,13 @@ final class SwingSegmenterTests: XCTestCase {
         XCTAssertTrue(result.isMonotonic)
     }
 
+    /// A slow backswing is the case that exposes the difference between "settled"
+    /// and "settled for a while".
+    ///
+    /// Spread within a window scales with hand speed, so the slower the swing the
+    /// closer the pause at the top sits to the stillness threshold — at a 1.25 s
+    /// backswing it drops under it. An earlier version stopped its backward walk
+    /// there and called the top of the backswing the takeaway.
     func testHandlesASlowerSwing() throws {
         var script = SwingFixture.Script()
         script.topStart = 2.25
@@ -128,6 +135,23 @@ final class SwingSegmenterTests: XCTestCase {
         XCTAssertEqual(result.takeaway, script.takeaway, accuracy: 0.08)
         XCTAssertEqual(result.top, expectedTop(script), accuracy: 0.08)
         XCTAssertTrue(result.isMonotonic)
+    }
+
+    /// The bay next door, caught a second time.
+    ///
+    /// The state machine arms us while the golfer stands settled over the ball,
+    /// so a neighbour's strike in exactly that moment is honoured and reaches
+    /// the segmenter. Here it arrives as a golfer who had not moved: no swing
+    /// to find, and a report rather than a wrong answer.
+    func testRejectsAStrikeWhileTheGolferIsStillAtAddress() {
+        var script = SwingFixture.Script()
+        script.takeaway = 10.0
+        script.trackEnd = 2.0
+        let track = SwingFixture.track(script: script)
+
+        XCTAssertThrowsError(try segmenter.segment(track: track, impact: 1.5)) { error in
+            XCTAssertEqual(error as? SegmentationFailure, .couldNotLocateTop)
+        }
     }
 
     /// A golfer who never pauses at the top still has a furthest point, which is

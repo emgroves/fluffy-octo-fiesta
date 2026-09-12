@@ -49,7 +49,6 @@ public enum SegmentationFailure: Error, Sendable, Equatable {
     case insufficientSamples
     case impactOutsideTrack
     case couldNotLocateTakeaway
-    case couldNotLocateAddress
     case couldNotLocateTop
     case couldNotLocateFinish
     case nonMonotonicResult
@@ -113,37 +112,65 @@ public struct SwingSegmenter: Sendable {
         let impactIndex = nearestIndex(in: path, to: impact)
         let radius = configuration.stillRadius
 
-        // Takeaway: walking back from impact, the hands are moving the whole way
-        // — up and then down — so the first settled sample we meet is the last
-        // moment before the swing started. A trailing window is essential here:
-        // it stays settled right up to the instant motion begins.
+        // Takeaway: walking back from impact, find the first settled run that
+        // *held*. A trailing window is essential — it stays settled right up to
+        // the instant motion begins.
+        //
+        // Requiring the run to last is what separates the address from the pause
+        // at the top. Spread within a window scales with how fast the hands are
+        // travelling, so on a slow backswing the dwell at the top drops below the
+        // threshold and reads as settled; it just does not read as settled for
+        // long. An address holds for `minStillDuration`; a pause at the top is
+        // a few tens of milliseconds.
+        //
+        // The method does assume the hands cover ground within one window during
+        // the backswing, which holds comfortably for a real swing — a golfer
+        // taking 0.8 s to the top measures around 0.14 against a 0.07 threshold.
         let floor = path[impactIndex].time - configuration.maxBackswingLookback
         var index = impactIndex
-        while index > 0, trailing[index].spread > radius, path[index].time >= floor {
-            index -= 1
-        }
-        guard trailing[index].spread <= radius, path[index].time >= floor else {
-            throw SegmentationFailure.couldNotLocateTakeaway
-        }
-        let takeawayIndex = index
+        var located: (takeaway: Int, address: Timestamp)?
 
-        // Address: the start of the settled run that precedes it. The trailing
-        // window only reports settled once it has filled, so the golfer actually
-        // came to rest one window earlier than the run appears to start.
-        while index > 0, trailing[index - 1].spread <= radius {
-            index -= 1
+        while index >= 0, path[index].time >= floor {
+            guard trailing[index].spread <= radius else {
+                index -= 1
+                continue
+            }
+
+            var runStart = index
+            while runStart > 0, trailing[runStart - 1].spread <= radius {
+                runStart -= 1
+            }
+            // The trailing window only reports settled once it has filled, so
+            // the golfer came to rest one window before the run appears to start.
+            let held = path[index].time - path[runStart].time + configuration.stillWindow
+            if held >= configuration.minStillDuration || runStart == 0 {
+                located = (
+                    takeaway: index,
+                    address: max(path[0].time, path[runStart].time - configuration.stillWindow)
+                )
+                break
+            }
+            index = runStart - 1
         }
-        let runStart = path[index].time
-        let held = path[takeawayIndex].time - runStart + configuration.stillWindow
-        guard held >= configuration.minStillDuration || index == 0 else {
-            throw SegmentationFailure.couldNotLocateAddress
-        }
-        let address = max(path[0].time, runStart - configuration.stillWindow)
+
+        guard let located else { throw SegmentationFailure.couldNotLocateTakeaway }
+        let takeawayIndex = located.takeaway
+        let address = located.address
 
         // Top of the backswing: the moment the hands sit furthest from where
         // they started. A reversal, not a stillness — a golfer with no pause at
         // the top still has a furthest point, and looking for one avoids
         // thresholding a derivative anywhere in this function.
+        // If the golfer had not moved by the time we were handed an impact, no
+        // swing happened between the two. This is the second line of defence
+        // against the bay next door: the state machine arms us while the golfer
+        // stands settled over the ball, so a neighbour's strike in that moment
+        // reaches here — and arrives with takeaway and impact at the same
+        // sample, which would also make the search below an invalid range.
+        guard takeawayIndex < impactIndex else {
+            throw SegmentationFailure.couldNotLocateTop
+        }
+
         let addressPosition = path[takeawayIndex].position
         var topIndex = takeawayIndex
         var furthest = -1.0
