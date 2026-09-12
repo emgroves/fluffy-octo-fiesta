@@ -157,10 +157,6 @@ public struct SwingSegmenter: Sendable {
         let takeawayIndex = located.takeaway
         let address = located.address
 
-        // Top of the backswing: the moment the hands sit furthest from where
-        // they started. A reversal, not a stillness — a golfer with no pause at
-        // the top still has a furthest point, and looking for one avoids
-        // thresholding a derivative anywhere in this function.
         // If the golfer had not moved by the time we were handed an impact, no
         // swing happened between the two. This is the second line of defence
         // against the bay next door: the state machine arms us while the golfer
@@ -171,6 +167,10 @@ public struct SwingSegmenter: Sendable {
             throw SegmentationFailure.couldNotLocateTop
         }
 
+        // Top of the backswing: the moment the hands sit furthest from where
+        // they started. A reversal, not a stillness — a golfer with no pause at
+        // the top still has a furthest point, and looking for one avoids
+        // thresholding a derivative anywhere in this function.
         let addressPosition = path[takeawayIndex].position
         var topIndex = takeawayIndex
         var furthest = -1.0
