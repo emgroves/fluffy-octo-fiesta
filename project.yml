@@ -1,0 +1,58 @@
+name: SwingMirror
+
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    iOS: "27.1"
+  createIntermediateGroups: true
+  developmentLanguage: en
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    GENERATE_INFOPLIST_FILE: NO
+
+packages:
+  SwingCore:
+    path: Packages/SwingCore
+
+targets:
+  SwingMirror:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources/SwingMirror
+    dependencies:
+      - package: SwingCore
+        product: SwingCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.swingmirror
+        PRODUCT_NAME: Swing Mirror
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_FILE: Sources/SwingMirror/Info.plist
+    info:
+      path: Sources/SwingMirror/Info.plist
+      properties:
+        CFBundleDisplayName: Swing Mirror
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UIApplicationSupportsIndirectInputEvents: true
+        UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSCameraUsageDescription: >-
+          Swing Mirror films your golf swing so it can replay it back to you on the
+          screen facing you. Video stays on this device.
+        NSMicrophoneUsageDescription: >-
+          Swing Mirror listens for the sound of the ball being struck. That is how it
+          knows when you have hit a shot, so you never have to touch the phone.

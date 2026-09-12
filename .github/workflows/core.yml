@@ -1,0 +1,21 @@
+name: SwingCore
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    name: Build and test SwingCore
+    runs-on: ubuntu-latest
+    # SwingCore depends on nothing but Foundation, so it builds and tests on
+    # Linux. The app target needs Xcode 27.1 for the iPhone Duo SDK and is built
+    # locally until hosted macOS runners carry it.
+    container: swift:6.0
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: swift build --package-path Packages/SwingCore
+      - name: Test
+        run: swift test --package-path Packages/SwingCore
